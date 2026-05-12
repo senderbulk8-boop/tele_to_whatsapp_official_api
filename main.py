@@ -1,63 +1,135 @@
 import os
 import json
+import asyncio
 import requests
-from telethon.sync import TelegramClient
+
+from telethon import TelegramClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
-API_ID = os.getenv("TG_API_ID")
+# =========================
+# TELEGRAM CONFIG
+# =========================
+
+API_ID = int(os.getenv("TG_API_ID"))
 API_HASH = os.getenv("TG_API_HASH")
+
+CHANNEL = "RAJASTHAN_TODAY"
+
+# =========================
+# WHATSAPP CONFIG
+# =========================
 
 META_TOKEN = os.getenv("META_TOKEN")
 PHONE_ID = os.getenv("PHONE_ID")
 
 WHATSAPP_NUMBER = "918104894648"
 
-CHANNEL = "RAJASTHAN_TODAY"
+# =========================
+# DUPLICATE FILTER FILE
+# =========================
 
-client = TelegramClient("session", API_ID, API_HASH)
+SENT_FILE = "sent_messages.json"
 
-if not os.path.exists("sent_messages.json"):
-    with open("sent_messages.json", "w") as f:
+if not os.path.exists(SENT_FILE):
+    with open(SENT_FILE, "w") as f:
         json.dump([], f)
 
-with open("sent_messages.json", "r") as f:
-    sent = json.load(f)
+with open(SENT_FILE, "r") as f:
+    sent_messages = json.load(f)
 
-client.start()
+# =========================
+# TELEGRAM CLIENT
+# =========================
 
-messages = client.get_messages(CHANNEL, limit=1)
+client = TelegramClient(
+    "session",
+    API_ID,
+    API_HASH
+)
 
-msg = messages[0]
+# =========================
+# SEND TEXT TO WHATSAPP
+# =========================
 
-if str(msg.id) in sent:
-    print("Already Sent")
-    quit()
+def send_whatsapp_text(message):
 
-caption = msg.text if msg.text else "hello its positron academy testing"
+    url = f"https://graph.facebook.com/v22.0/{PHONE_ID}/messages"
 
-url = f"https://graph.facebook.com/v22.0/{PHONE_ID}/messages"
-
-headers = {
-    "Authorization": f"Bearer {META_TOKEN}",
-    "Content-Type": "application/json"
-}
-
-data = {
-    "messaging_product": "whatsapp",
-    "to": WHATSAPP_NUMBER,
-    "type": "text",
-    "text": {
-        "body": caption
+    headers = {
+        "Authorization": f"Bearer {META_TOKEN}",
+        "Content-Type": "application/json"
     }
-}
 
-response = requests.post(url, headers=headers, json=data)
+    data = {
+        "messaging_product": "whatsapp",
+        "to": WHATSAPP_NUMBER,
+        "type": "text",
+        "text": {
+            "body": message
+        }
+    }
 
-print(response.text)
+    response = requests.post(
+        url,
+        headers=headers,
+        json=data
+    )
 
-sent.append(str(msg.id))
+    print(response.text)
 
-with open("sent_messages.json", "w") as f:
-    json.dump(sent, f)
+# =========================
+# MAIN FUNCTION
+# =========================
+
+async def main():
+
+    await client.connect()
+
+    print("Telegram Connected")
+
+    messages = await client.get_messages(
+        CHANNEL,
+        limit=1
+    )
+
+    if not messages:
+        print("No Messages Found")
+        return
+
+    msg = messages[0]
+
+    message_id = str(msg.id)
+
+    # DUPLICATE CHECK
+
+    if message_id in sent_messages:
+        print("Already Sent")
+        return
+
+    # TEXT
+
+    text = msg.text
+
+    if not text:
+        text = "hello its positron academy testing"
+
+    # SEND TO WHATSAPP
+
+    send_whatsapp_text(text)
+
+    # SAVE MESSAGE ID
+
+    sent_messages.append(message_id)
+
+    with open(SENT_FILE, "w") as f:
+        json.dump(sent_messages, f)
+
+    print("Message Sent Successfully")
+
+# =========================
+# RUN
+# =========================
+
+asyncio.run(main())
