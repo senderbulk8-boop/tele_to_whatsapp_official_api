@@ -1,139 +1,73 @@
-import os
-import json
-import asyncio
+from telethon import TelegramClient, events
 import requests
+import os
+import asyncio
 
-from telethon import TelegramClient
-from dotenv import load_dotenv
+# Telegram API
+api_id = int(os.getenv("TG_API_ID"))
+api_hash = os.getenv("TG_API_HASH")
 
-load_dotenv()
+# WhatsApp API
+meta_token = os.getenv("META_TOKEN")
+phone_id = os.getenv("PHONE_ID")
 
-# =========================
-# TELEGRAM CONFIG
-# =========================
+# Telegram Client
+client = TelegramClient("session", api_id, api_hash)
 
-API_ID = int(os.getenv("TG_API_ID"))
-API_HASH = os.getenv("TG_API_HASH")
+print("Telegram Connected")
 
-CHANNEL = "RAJASTHAN_TODAY"
+# WhatsApp Send Function
+def send_whatsapp_message(number, message):
 
-# =========================
-# WHATSAPP CONFIG
-# =========================
-
-META_TOKEN = os.getenv("META_TOKEN")
-PHONE_ID = os.getenv("PHONE_ID")
-
-WHATSAPP_NUMBER = "918104894648"
-
-# =========================
-# DUPLICATE FILTER FILE
-# =========================
-
-SENT_FILE = "sent_messages.json"
-
-if not os.path.exists(SENT_FILE):
-    with open(SENT_FILE, "w") as f:
-        json.dump([], f)
-
-with open(SENT_FILE, "r") as f:
-    sent_messages = json.load(f)
-
-# =========================
-# TELEGRAM CLIENT
-# =========================
-
-client = TelegramClient(
-    "session",
-    API_ID,
-    API_HASH
-)
-
-# =========================
-# SEND TEXT TO WHATSAPP
-# =========================
-
-def send_whatsapp_text(message):
-
-    url = f"https://graph.facebook.com/v22.0/{PHONE_ID}/messages"
+    url = f"https://graph.facebook.com/v22.0/{phone_id}/messages"
 
     headers = {
-        "Authorization": f"Bearer {META_TOKEN}",
+        "Authorization": f"Bearer {meta_token}",
         "Content-Type": "application/json"
     }
 
     data = {
         "messaging_product": "whatsapp",
-        "to": WHATSAPP_NUMBER,
+        "to": number,
         "type": "text",
         "text": {
             "body": message
         }
     }
 
-    response = requests.post(
-        url,
-        headers=headers,
-        json=data
+    response = requests.post(url, headers=headers, json=data)
+
+    print(response.text)
+
+    if response.status_code == 200:
+        print("Message Sent Successfully")
+    else:
+        print("Failed To Send Message")
+
+
+# Telegram Message Listener
+@client.on(events.NewMessage)
+async def handler(event):
+
+    msg = event.raw_text
+
+    print("New Telegram Message:")
+    print(msg)
+
+    # Yahan apna WhatsApp number likho country code ke sath
+    send_whatsapp_message(
+        "918104894648",
+        msg
     )
 
-    print("Status Code:", response.status_code)
-print("Response:", response.text)
-
-# =========================
-# MAIN FUNCTION
-# =========================
 
 async def main():
 
-    await client.connect()
+    await client.start()
 
-    print("Telegram Connected")
+    print("Bot Running...")
 
-    messages = await client.get_messages(
-        CHANNEL,
-        limit=1
-    )
+    await client.run_until_disconnected()
 
-    if not messages:
-        print("No Messages Found")
-        return
-
-    msg = messages[0]
-
-    message_id = str(msg.id)
-
-    # DUPLICATE CHECK
-
-    if message_id in sent_messages:
-        print("Already Sent")
-        return
-
-    # TEXT
-
-    text = msg.text
-
-    if not text:
-        text = "hello its positron academy testing"
-
-    # SEND TO WHATSAPP
-
-    send_whatsapp_text(text)
-
-    # SAVE MESSAGE ID
-
-    sent_messages.append(message_id)
-
-    with open(SENT_FILE, "w") as f:
-        json.dump(sent_messages, f)
-
-   if response.status_code == 200:
-    print("Message Sent Successfully")
-else:
-    print("Failed To Send")
-
-# =========================
-# RUN
-# =========================
 
 asyncio.run(main())
