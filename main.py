@@ -77,7 +77,8 @@ def send_whatsapp_text(message):
         json=data
     )
 
-    print(response.text)
+    print("Status Code:", response.status_code)
+print("Response:", response.text)
 
 # =========================
 # MAIN FUNCTION
@@ -126,7 +127,10 @@ async def main():
     with open(SENT_FILE, "w") as f:
         json.dump(sent_messages, f)
 
+   if response.status_code == 200:
     print("Message Sent Successfully")
+else:
+    print("Failed To Send")
 
 # =========================
 # RUN
