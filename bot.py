@@ -56,10 +56,10 @@ def send_text(text):
         r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=10)
         print(f"📤 Text Status: {r.status_code}")
         if r.status_code != 200:
-            print(f"Error: {r.text[:500]}")
+            print(f"Error: {r.text[:400]}")
         return r.status_code == 200
     except Exception as e:
-        print(f"❌ Text Error: {e}")
+        print(f"❌ Text Send Error: {e}")
         return False
 
 def download_file(file_id):
@@ -81,7 +81,7 @@ def send_media(media_bytes, media_type, caption=""):
                              headers=headers, files=files, timeout=30)
         
         if upload.status_code != 200:
-            print(f"❌ Upload Failed: {upload.text}")
+            print(f"❌ Media Upload Failed: {upload.text[:300]}")
             return False
             
         media_id = upload.json()['id']
@@ -116,12 +116,12 @@ def send_media(media_bytes, media_type, caption=""):
             print(resp.text[:400])
         return resp.status_code == 200
     except Exception as e:
-        print(f"❌ Media Error: {e}")
+        print(f"❌ Media Send Error: {e}")
         return False
 
 def main():
     print(f"🚀 Bot Started at {datetime.now()}")
-    print(f"Target Number: {TARGET_NUMBER}")
+    print(f"Target: {TARGET_NUMBER}")
 
     offset = load_offset()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
@@ -136,7 +136,7 @@ def main():
             return
 
         updates = data.get("result", [])
-        print(f"📥 Found {len(updates)} updates from Telegram")
+        print(f"📥 Found {len(updates)} updates")
 
         for update in updates:
             message = update.get("message")
@@ -144,10 +144,41 @@ def main():
                 continue
 
             user = message.get("from", {}).get("first_name", "Unknown")
-            print(f"📨 Processing message from {user}")
+            print(f"📨 New message from {user}")
 
-            # Text Message
             if message.get("text"):
-                text = f"📨 Telegram से ({user}):\n{message['text']}"
-                send_text(text)
+                text_msg = f"📨 Telegram ({user}):\n{message['text']}"
+                send_text(text_msg)
 
+            elif message.get("photo"):
+                photo = message["photo"][-1]
+                print("🖼️ Image Detected...")
+                file_bytes = download_file(photo["file_id"])
+                if file_bytes:
+                    send_media(file_bytes, "image/jpeg", f"From: {user}")
+
+            elif message.get("video"):
+                video = message["video"]
+                print("🎥 Video Detected...")
+                file_bytes = download_file(video["file_id"])
+                if file_bytes:
+                    send_media(file_bytes, "video/mp4", f"From: {user}")
+
+            elif message.get("document"):
+                doc = message["document"]
+                print(f"📄 Document: {doc.get('file_name')}")
+                file_bytes = download_file(doc["file_id"])
+                if file_bytes:
+                    mime = doc.get("mime_type", "application/pdf")
+                    send_media(file_bytes, mime, f"From: {user}")
+
+            offset = update["update_id"] + 1
+
+        save_offset(offset)
+        print("✅ Cycle Completed\n")
+
+    except Exception as e:
+        print(f"❌ Critical Error: {e}")
+
+if __name__ == "__main__":
+    main()
