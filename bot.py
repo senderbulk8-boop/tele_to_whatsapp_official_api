@@ -11,7 +11,7 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 TARGETS = [t.strip() for t in os.getenv("WHATSAPP_TARGETS", "").split(",") if t.strip()]
 # ============================
 
-LAST_OFFSET = 0
+LAST_OFFSET = 826689165
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
 def update_offset_in_file(new_offset):
