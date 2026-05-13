@@ -6,7 +6,7 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
-TARGET_NUMBER = "+17737781986"
+TARGET_NUMBER = "917737781986"
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
@@ -26,6 +26,7 @@ def save_offset(offset):
         json.dump({"offset": offset}, f)
 
 def send_to_whatsapp(text):
+    print(f"🔄 Trying to send to WhatsApp: {text[:100]}...")
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
@@ -39,17 +40,19 @@ def send_to_whatsapp(text):
     }
     try:
         r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=10)
-        print(f"📤 WhatsApp Status: {r.status_code}")
+        print(f"📤 WhatsApp API Response: {r.status_code}")
         if r.status_code == 200:
-            print("✅ Message Successfully Sent to WhatsApp!")
+            print("✅ SUCCESS: Message Sent to Your WhatsApp Number!")
         else:
-            print(f"❌ Error: {r.text[:400]}")
+            print(f"❌ FAILED: {r.text[:500]}")
     except Exception as e:
-        print(f"❌ Send Failed: {e}")
+        print(f"❌ Exception while sending: {e}")
 
 def main():
-    print(f"🚀 Bot Started - {datetime.now()}")
-    
+    print(f"\n🚀 Bot Started at {datetime.now()}")
+    print(f"Target Number: {TARGET_NUMBER}")
+    print(f"Phone Number ID: {PHONE_NUMBER_ID[:8]}...")
+
     offset = load_offset()
     print(f"Current Offset: {offset}")
 
@@ -60,41 +63,48 @@ def main():
         resp = requests.get(url, params=params, timeout=15)
         data = resp.json()
         
+        print(f"Telegram API Status: {'✅ OK' if data.get('ok') else '❌ Failed'}")
         updates = data.get("result", [])
-        print(f"📥 Total Updates Found: {len(updates)}")
+        print(f"Total Updates Found: {len(updates)}")
 
         processed = 0
         for update in updates:
-            message = update.get("message")
+            update_id = update.get("update_id")
+            message = update.get("message") or update.get("channel_post")
+            
+            print(f"\n--- Update ID: {update_id} ---")
+            
             if not message:
+                print("No message or channel_post found in this update")
+                offset = update_id + 1
                 continue
 
             user = message.get("from", {}).get("first_name", "Unknown")
-            update_id = update["update_id"]
-            
-            print(f"\n📨 Update ID {update_id} | From: {user}")
+            chat_type = message.get("chat", {}).get("type", "unknown")
+            print(f"From: {user} | Chat Type: {chat_type}")
 
             # Text Message
             if message.get("text"):
-                text = f"📨 Telegram ({user}):\n{message['text']}"
-                print("📝 Text Message Detected → Sending to WhatsApp")
-                send_to_whatsapp(text)
+                text = message["text"]
+                print(f"📝 TEXT Found: {text[:100]}")
+                forwarded = f"📨 Telegram ({user}):\n{text}"
+                send_to_whatsapp(forwarded)
                 processed += 1
 
-            # Media Messages
+            # Other types
             elif message.get("photo"):
-                print("🖼️ Photo Detected")
+                print("🖼️ Photo Found")
             elif message.get("video"):
-                print("🎥 Video Detected")
+                print("🎥 Video Found")
             elif message.get("document"):
-                print("📄 Document Detected")
+                print("📄 Document Found")
             else:
-                print("❓ Other type of message")
+                print("Other message type (sticker, voice, etc.)")
 
             offset = update_id + 1
 
         save_offset(offset)
-        print(f"\n✅ Cycle Completed | Processed: {processed} messages | New Offset: {offset}\n")
+        print(f"\n✅ Cycle Finished | Processed Messages: {processed} | New Offset: {offset}\n")
 
     except Exception as e:
         print(f"❌ Critical Error: {e}")
