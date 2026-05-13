@@ -40,14 +40,12 @@ def send_to_whatsapp(text):
     try:
         r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=10)
         print(f"📤 WhatsApp Status: {r.status_code}")
-        if r.status_code != 200:
-            print(f"Error: {r.text[:300]}")
+        if r.status_code == 200:
+            print("✅ Message Successfully Sent to WhatsApp!")
         else:
-            print("✅ Message Sent Successfully to WhatsApp!")
-        return r.status_code == 200
+            print(f"❌ Error: {r.text[:400]}")
     except Exception as e:
-        print(f"❌ Send Error: {e}")
-        return False
+        print(f"❌ Send Failed: {e}")
 
 def main():
     print(f"🚀 Bot Started - {datetime.now()}")
@@ -63,7 +61,7 @@ def main():
         data = resp.json()
         
         updates = data.get("result", [])
-        print(f"📥 Found {len(updates)} updates")
+        print(f"📥 Total Updates Found: {len(updates)}")
 
         processed = 0
         for update in updates:
@@ -74,22 +72,29 @@ def main():
             user = message.get("from", {}).get("first_name", "Unknown")
             update_id = update["update_id"]
             
-            print(f"📨 New Message from {user} (Update ID: {update_id})")
+            print(f"\n📨 Update ID {update_id} | From: {user}")
 
+            # Text Message
             if message.get("text"):
                 text = f"📨 Telegram ({user}):\n{message['text']}"
+                print("📝 Text Message Detected → Sending to WhatsApp")
                 send_to_whatsapp(text)
                 processed += 1
 
-            # Photo, Video, Document support (basic)
-            elif message.get("photo") or message.get("video") or message.get("document"):
-                print("🖼️ Media detected (Text forward only for now)")
+            # Media Messages
+            elif message.get("photo"):
+                print("🖼️ Photo Detected")
+            elif message.get("video"):
+                print("🎥 Video Detected")
+            elif message.get("document"):
+                print("📄 Document Detected")
+            else:
+                print("❓ Other type of message")
 
-            # Update offset
             offset = update_id + 1
 
         save_offset(offset)
-        print(f"✅ Done! Processed {processed} messages | New Offset: {offset}\n")
+        print(f"\n✅ Cycle Completed | Processed: {processed} messages | New Offset: {offset}\n")
 
     except Exception as e:
         print(f"❌ Critical Error: {e}")
