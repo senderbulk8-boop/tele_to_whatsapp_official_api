@@ -1,0 +1,30 @@
+name: Telegram to WhatsApp Group Bridge
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'     # हर 5 मिनट में
+  workflow_dispatch:          # Manual trigger के लिए
+
+jobs:
+  forward-messages:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Telegram → WhatsApp Forwarder
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_GROUP_ID: ${{ secrets.WHATSAPP_GROUP_ID }}
+        run: python bot.py
