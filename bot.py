@@ -28,9 +28,13 @@ def save_offset(offset):
 def download_file(file_id):
     try:
         r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}", timeout=15)
+        if not r.json().get('ok'):
+            print("❌ Telegram File Download Failed")
+            return None
         file_path = r.json()['result']['file_path']
-        return requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}", timeout=20).content
-    except:
+        return requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}", timeout=30).content
+    except Exception as e:
+        print(f"❌ Download Error: {e}")
         return None
 
 def send_text(text):
@@ -44,25 +48,37 @@ def send_text(text):
     }
     try:
         r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=10)
-        print(f"📤 Text: {r.status_code}")
+        print(f"📤 Text Status: {r.status_code}")
         if r.status_code == 200:
-            print("✅ Text Sent to WhatsApp")
+            print("✅ Text Sent Successfully")
+        else:
+            print(f"Text Error: {r.text[:300]}")
     except Exception as e:
-        print(f"Text Error: {e}")
+        print(f"Text Exception: {e}")
 
 def send_media(file_bytes, media_type, caption=""):
+    print(f"🔄 Uploading {media_type} to WhatsApp...")
     try:
         headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
         files = {'file': ('media', file_bytes, media_type)}
         
-        upload = requests.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media", 
-                             headers=headers, files=files, timeout=30)
-        if upload.status_code != 200:
-            print("❌ Media Upload Failed")
-            return
+        # Media Upload
+        upload_resp = requests.post(
+            f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media", 
+            headers=headers, 
+            files=files, 
+            timeout=40
+        )
+        
+        print(f"📤 Upload Status: {upload_resp.status_code}")
+        if upload_resp.status_code != 200:
+            print(f"❌ Upload Failed: {upload_resp.text[:500]}")
+            return False
 
-        media_id = upload.json()['id']
+        media_id = upload_resp.json().get('id')
+        print(f"✅ Media Uploaded, ID: {media_id}")
 
+        # Send Media
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
@@ -72,21 +88,30 @@ def send_media(file_bytes, media_type, caption=""):
         if media_type.startswith('image'):
             payload["type"] = "image"
             payload["image"] = {"id": media_id}
-            if caption: payload["image"]["caption"] = caption
+            if caption:
+                payload["image"]["caption"] = caption
         elif media_type.startswith('video'):
             payload["type"] = "video"
             payload["video"] = {"id": media_id}
-            if caption: payload["video"]["caption"] = caption
+            if caption:
+                payload["video"]["caption"] = caption
         else:
             payload["type"] = "document"
             payload["document"] = {"id": media_id}
-            if caption: payload["document"]["caption"] = caption[:200]
+            if caption:
+                payload["document"]["caption"] = caption[:200]
 
-        resp = requests.post(WHATSAPP_API_URL, json=payload, 
-                           headers={**headers, "Content-Type": "application/json"}, timeout=15)
-        print(f"📤 Media Status: {resp.status_code}")
+        send_resp = requests.post(WHATSAPP_API_URL, json=payload, 
+                                headers={**headers, "Content-Type": "application/json"}, timeout=15)
+        
+        print(f"📤 Final Send Status: {send_resp.status_code}")
+        if send_resp.status_code == 200:
+            print("✅ Media Sent Successfully to WhatsApp!")
+        else:
+            print(f"❌ Final Send Failed: {send_resp.text[:400]}")
+            
     except Exception as e:
-        print(f"Media Error: {e}")
+        print(f"❌ Media Exception: {e}")
 
 def main():
     print(f"\n🚀 Bot Started - {datetime.now()}")
@@ -103,22 +128,19 @@ def main():
         updates = data.get("result", [])
         print(f"📥 Total Updates: {len(updates)}")
 
-        processed = 0
         for update in updates:
-            # Handle both normal message and channel_post
             message = update.get("message") or update.get("channel_post")
             if not message:
                 continue
 
             update_id = update["update_id"]
-            user = message.get("from", {}).get("first_name", "Unknown") if message.get("from") else "Channel"
+            user = message.get("from", {}).get("first_name", "Channel")
 
             print(f"\n📨 Update {update_id} | From: {user}")
 
             if message.get("text"):
                 forwarded = f"📨 Telegram ({user}):\n{message['text']}"
                 send_text(forwarded)
-                processed += 1
 
             elif message.get("photo"):
                 print("🖼️ Image Detected")
@@ -126,15 +148,6 @@ def main():
                 file_bytes = download_file(photo["file_id"])
                 if file_bytes:
                     send_media(file_bytes, "image/jpeg", f"From: {user}")
-                    processed += 1
-
-            elif message.get("video"):
-                print("🎥 Video Detected")
-                video = message["video"]
-                file_bytes = download_file(video["file_id"])
-                if file_bytes:
-                    send_media(file_bytes, "video/mp4", f"From: {user}")
-                    processed += 1
 
             elif message.get("document"):
                 doc = message["document"]
@@ -143,12 +156,11 @@ def main():
                 if file_bytes:
                     mime = doc.get("mime_type", "application/pdf")
                     send_media(file_bytes, mime, f"From: {user} | {doc.get('file_name','')}")
-                    processed += 1
 
             offset = update_id + 1
 
         save_offset(offset)
-        print(f"\n✅ Cycle Completed | Processed: {processed} items\n")
+        print(f"\n✅ Cycle Completed\n")
 
     except Exception as e:
         print(f"❌ Critical Error: {e}")
