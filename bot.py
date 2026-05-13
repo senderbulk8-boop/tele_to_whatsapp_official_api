@@ -15,7 +15,7 @@ TARGETS = [t.strip() for t in targets_str.split(",") if t.strip()]
 REPLACEMENT_USERNAME = "@KapilRJ06"
 # ============================
 
-LAST_OFFSET = 0
+LAST_OFFSET = 826689165
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
 def clean_caption(caption):
