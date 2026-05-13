@@ -6,7 +6,7 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
-TARGET_NUMBER = "7737781986"
+TARGET_NUMBER = "+917737781986"
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
