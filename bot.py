@@ -7,145 +7,109 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 
-# === SMART TARGET HANDLING ===
-targets_str = os.getenv("WHATSAPP_TARGETS", "") or os.getenv("WHATSAPP_GROUP_ID", "")
-TARGETS = [t.strip() for t in targets_str.split(",") if t.strip()]
+# === TARGETS (Personal + Business + 5 Main Groups) ===
+TARGETS = [
+    "917737781986",                    # Personal Number
+    "918104894648",                    # Business Number (Admin)
+    "120363378924248976@g.us",         # RAJASTHAN COMPETITION GK GROUP
+    "120363288666306542@g.us",         # राजस्थान सामान्य ज्ञान ग्रुप 23-24
+    "120363270726830789@g.us",         # राजस्थान सामान्य ज्ञान ग्रुप 2022-23 (1)
+    "120363290254749076@g.us",         # राजस्थान सामान्य ज्ञान ग्रुप 2022-23 (2)
+    "120363300363000430@g.us"          # राजस्थान सामान्य ज्ञान ग्रुप 22-23
+]
 
-# === USERNAME REPLACE ===
 REPLACEMENT_USERNAME = "@KapilRJ06"
-# ============================
-
-LAST_OFFSET = 826689165
+LAST_OFFSET = 0
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
 def clean_caption(caption):
-    if not caption:
-        return ""
-    # @username ya @KapilRJ06 wagairah ko replace karo
+    if not caption: return ""
     return re.sub(r'@[a-zA-Z0-9_]+', REPLACEMENT_USERNAME, caption)
 
 def update_offset_in_file(new_offset):
     try:
-        with open(__file__, 'r') as f:
-            content = f.read()
+        with open(__file__, 'r') as f: content = f.read()
         new_content = re.sub(r'LAST_OFFSET = \d+', f'LAST_OFFSET = {new_offset}', content)
-        with open(__file__, 'w') as f:
-            f.write(new_content)
-        print(f"✅ Offset auto-updated to {new_offset}")
-    except Exception as e:
-        print(f"⚠️ Offset update failed: {e}")
+        with open(__file__, 'w') as f: f.write(new_content)
+        print(f"✅ Offset updated to {new_offset}")
+    except: pass
 
 def download_file(file_id):
     try:
         r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}", timeout=15)
-        file_path = r.json()['result']['file_path']
-        return requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}", timeout=30).content
-    except:
-        return None
+        return requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{r.json()['result']['file_path']}", timeout=30).content
+    except: return None
 
 def send_to_target(target, payload):
-    if not target:
-        return
     try:
         payload["to"] = target
-        if "@g.us" in target:
-            payload["recipient_type"] = "group"
-        else:
-            payload["recipient_type"] = "individual"
-
+        payload["recipient_type"] = "group" if "@g.us" in target else "individual"
+        
         r = requests.post(WHATSAPP_API_URL, json=payload,
                          headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"},
                          timeout=10)
-        
         if r.status_code == 200:
             print(f"✅ SUCCESS → {target}")
         else:
-            print(f"❌ FAILED → {target} | {r.status_code} | {r.text[:120]}")
+            print(f"❌ FAILED → {target} | {r.status_code} | {r.text[:100]}")
     except Exception as e:
-        print(f"❌ EXCEPTION → {target} | {str(e)[:80]}")
+        print(f"❌ ERROR → {target} | {str(e)[:60]}")
 
 def send_text(text):
-    print(f"\n📨 TEXT → {len(TARGETS)} targets")
-    for target in TARGETS:
-        payload = {"messaging_product": "whatsapp", "type": "text", "text": {"body": text[:2000]}}
-        send_to_target(target, payload)
+    print(f"\n📨 TEXT to {len(TARGETS)} targets...")
+    for t in TARGETS:
+        send_to_target(t, {"messaging_product": "whatsapp", "type": "text", "text": {"body": text[:2000]}})
 
 def send_media(file_bytes, media_type, caption=""):
-    print(f"\n📎 MEDIA → {len(TARGETS)} targets")
+    print(f"\n📎 MEDIA to {len(TARGETS)} targets...")
     clean_cap = clean_caption(caption)
-    for target in TARGETS:
-        if not target: continue
+    for t in TARGETS:
         try:
             headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
             files = {'file': ('media', file_bytes, media_type), 'messaging_product': (None, 'whatsapp')}
             upload = requests.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media", headers=headers, files=files, timeout=40)
-            if upload.status_code != 200:
-                print(f"❌ Upload failed for {target}")
-                continue
-            media_id = upload.json().get('id')
-            
+            if upload.status_code != 200: continue
+            mid = upload.json().get('id')
             payload = {"messaging_product": "whatsapp"}
             if media_type.startswith('image'):
-                payload.update({"type": "image", "image": {"id": media_id, "caption": clean_cap}})
+                payload.update({"type": "image", "image": {"id": mid, "caption": clean_cap}})
             else:
-                payload.update({"type": "document", "document": {"id": media_id, "caption": clean_cap}})
-            
-            send_to_target(target, payload)
+                payload.update({"type": "document", "document": {"id": mid, "caption": clean_cap}})
+            send_to_target(t, payload)
         except Exception as e:
-            print(f"❌ Media Error → {target} | {str(e)[:80]}")
+            print(f"❌ Media error {t}")
 
 def main():
-    print(f"\n{'='*65}")
-    print(f"🚀 Bot Started - {datetime.now()}")
-    print(f"📌 Offset: {LAST_OFFSET}")
-    print(f"🎯 Total Targets: {len(TARGETS)}")
-    if TARGETS:
-        print(f"📋 Targets: {TARGETS}")
-    print(f"{'='*65}\n")
-    
-    current_offset = LAST_OFFSET
+    print(f"\n{'='*65}\n🚀 Bot Started | Targets: {len(TARGETS)} | Offset: {LAST_OFFSET}\n{'='*65}")
+    current = LAST_OFFSET
     try:
-        updates = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={current_offset}&limit=20&timeout=10", timeout=15).json().get("result", [])
+        updates = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={current}&limit=20", timeout=15).json().get("result", [])
         if not updates:
             print("ℹ️ No new messages")
             return
-            
-        for update in updates:
-            update_id = update["update_id"]
-            if update_id < current_offset: continue
-            message = update.get("message") or update.get("channel_post")
-            if not message:
-                current_offset = update_id + 1
+        for u in updates:
+            mid = u["update_id"]
+            if mid < current: continue
+            msg = u.get("message") or u.get("channel_post")
+            if not msg:
+                current = mid + 1
                 continue
-                
-            user = message.get("from", {}).get("first_name", "Channel")
-            caption = message.get("caption") or ""
-            
-            if message.get("text"):
-                send_text(f"📨 Telegram ({user}):\n{message['text']}")
-            elif message.get("photo"):
-                print("🖼️ Image Detected")
-                fb = download_file(message["photo"][-1]["file_id"])
-                if fb:
-                    send_media(fb, "image/jpeg", caption or f"📨 From Telegram ({user})")
-            elif message.get("document"):
-                doc = message["document"]
-                print(f"📄 Document: {doc.get('file_name')}")
-                fb = download_file(doc["file_id"])
-                if fb:
-                    send_media(fb, doc.get("mime_type", "application/pdf"), caption or f"📨 From Telegram ({user})")
-            
-            current_offset = update_id + 1
-            
-        if current_offset > LAST_OFFSET:
-            update_offset_in_file(current_offset)
-            
-        print(f"\n{'='*65}")
-        print(f"✅ All done! Next offset: {current_offset}")
-        print(f"{'='*65}\n")
-        
+            user = msg.get("from", {}).get("first_name", "User")
+            cap = msg.get("caption") or ""
+            if msg.get("text"):
+                send_text(f"📨 Telegram ({user}):\n{msg['text']}")
+            elif msg.get("photo"):
+                fb = download_file(msg["photo"][-1]["file_id"])
+                if fb: send_media(fb, "image/jpeg", cap or f"From Telegram ({user})")
+            elif msg.get("document"):
+                fb = download_file(msg["document"]["file_id"])
+                if fb: send_media(fb, msg["document"].get("mime_type", "application/pdf"), cap or f"From Telegram ({user})")
+            current = mid + 1
+        if current > LAST_OFFSET:
+            update_offset_in_file(current)
+        print(f"\n✅ Done! Next offset: {current}\n{'='*65}")
     except Exception as e:
-        print(f"❌ MAIN ERROR: {e}")
+        print(f"❌ Main Error: {e}")
 
 if __name__ == "__main__":
     main()
