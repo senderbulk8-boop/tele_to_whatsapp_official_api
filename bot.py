@@ -15,14 +15,19 @@ def load_offset():
     if os.path.exists(OFFSET_FILE):
         try:
             with open(OFFSET_FILE, 'r') as f:
-                return json.load(f).get("offset", 0)
+                data = json.load(f)
+                return data.get("offset", 0)
         except:
             return 0
     return 0
 
 def save_offset(offset):
-    with open(OFFSET_FILE, 'w') as f:
-        json.dump({"offset": offset}, f)
+    try:
+        with open(OFFSET_FILE, 'w') as f:
+            json.dump({"offset": offset, "last_updated": str(datetime.now())}, f)
+        print(f"📌 Offset saved: {offset}")
+    except Exception as e:
+        print(f"⚠️ Offset save failed: {e}")
 
 def download_file(file_id):
     try:
@@ -45,8 +50,8 @@ def send_text(text):
         r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=10)
         if r.status_code == 200:
             print("✅ Text Sent")
-    except:
-        pass
+    except Exception as e:
+        print(f"Text Error: {e}")
 
 def send_media(file_bytes, media_type, caption=""):
     try:
@@ -74,13 +79,10 @@ def send_media(file_bytes, media_type, caption=""):
             payload["type"] = "image"
             payload["image"] = {"id": media_id}
             if caption:
-                payload["image"]["caption"] = caption[:1024]  # WhatsApp limit
-        else:  # document / pdf
+                payload["image"]["caption"] = caption[:1024]
+        else:
             payload["type"] = "document"
-            payload["document"] = {
-                "id": media_id,
-                "filename": "document.pdf"  # agar filename chahiye to baad mein improve kar sakte
-            }
+            payload["document"] = {"id": media_id}
             if caption:
                 payload["document"]["caption"] = caption[:1024]
         
@@ -88,9 +90,9 @@ def send_media(file_bytes, media_type, caption=""):
                            headers={**headers, "Content-Type": "application/json"}, timeout=15)
        
         if resp.status_code == 200:
-            print("✅ Media Sent with Original Caption")
+            print("✅ Media Sent with Caption")
         else:
-            print(f"❌ Final Send Failed: {resp.status_code} - {resp.text[:200]}")
+            print(f"❌ Send Failed: {resp.status_code}")
            
     except Exception as e:
         print(f"❌ Media Error: {e}")
@@ -98,23 +100,33 @@ def send_media(file_bytes, media_type, caption=""):
 def main():
     print(f"\n🚀 Bot Started - {datetime.now()}")
    
-    offset = load_offset()
+    current_offset = load_offset()
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    params = {"offset": offset, "limit": 20, "timeout": 10}
+    params = {"offset": current_offset, "limit": 20, "timeout": 10}
     
     try:
         resp = requests.get(url, params=params, timeout=15)
         updates = resp.json().get("result", [])
         
+        if not updates:
+            print("ℹ️ No new messages")
+            return
+            
         for update in updates:
-            message = update.get("message") or update.get("channel_post")
-            if not message:
+            update_id = update["update_id"]
+            
+            # Skip if already processed
+            if update_id < current_offset:
+                print(f"⏭️ Skipping old update {update_id}")
                 continue
                 
-            update_id = update["update_id"]
+            message = update.get("message") or update.get("channel_post")
+            if not message:
+                current_offset = update_id + 1
+                save_offset(current_offset)
+                continue
+                
             user = message.get("from", {}).get("first_name", "Channel")
-            
-            # Original Caption from Telegram
             original_caption = message.get("caption") or ""
             
             if message.get("text"):
@@ -136,17 +148,19 @@ def main():
                 if file_bytes:
                     mime = doc.get("mime_type", "application/octet-stream")
                     file_name = doc.get('file_name', 'document.pdf')
-                    
                     caption = original_caption if original_caption else f"📨 From Telegram ({user})\n📎 {file_name}"
                     send_media(file_bytes, mime, caption)
             
-            offset = update_id + 1
+            # Save offset IMMEDIATELY after processing each update
+            current_offset = update_id + 1
+            save_offset(current_offset)
             
-        save_offset(offset)
-        print("✅ Cycle Completed\n")
+        print("✅ All new messages processed\n")
         
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"❌ Error: {e}")
+        # Save whatever offset we have so far
+        save_offset(current_offset)
 
 if __name__ == "__main__":
     main()
