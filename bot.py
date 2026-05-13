@@ -10,6 +10,7 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 WHATSAPP_GROUP_ID = os.getenv('WHATSAPP_GROUP_ID')
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+
 OFFSET_FILE = "last_offset.json"
 LAST_REMINDER_FILE = "last_reminder.json"
 
@@ -39,74 +40,156 @@ def save_last_reminder():
     with open(LAST_REMINDER_FILE, 'w') as f:
         json.dump({"time": datetime.now().isoformat()}, f)
 
-def send_to_whatsapp(message_text: str):
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+def download_telegram_file(file_id):
+    """Telegram से file download करके bytes return करे"""
+    try:
+        # Get file path
+        file_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}"
+        file_path = requests.get(file_url).json()['result']['file_path']
+        
+        # Download file
+        download_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+        response = requests.get(download_url)
+        return response.content
+    except:
+        return None
+
+def send_media_to_whatsapp(media_bytes, media_type, caption=""):
+    """WhatsApp पर media भेजना"""
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+    
+    # Media upload करें
+    files = {'file': ('media', media_bytes, media_type)}
+    upload_url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
+    
+    try:
+        upload_resp = requests.post(upload_url, headers=headers, files=files)
+        if upload_resp.status_code != 200:
+            print("❌ Media Upload Failed:", upload_resp.text)
+            return False
+        
+        media_id = upload_resp.json()['id']
+        
+        # Final message send
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "group",
+            "to": WHATSAPP_GROUP_ID,
+            "type": media_type.split('/')[0] if '/' in media_type else "document",
+        }
+        
+        if media_type.startswith('image'):
+            payload["image"] = {"id": media_id}
+        elif media_type.startswith('video'):
+            payload["video"] = {"id": media_id}
+        else:
+            payload["document"] = {"id": media_id}
+        
+        if caption:
+            if media_type.startswith('image') or media_type.startswith('video'):
+                payload["image" if media_type.startswith('image') else "video"]["caption"] = caption
+            else:
+                payload["document"]["caption"] = caption
+        
+        resp = requests.post(WHATSAPP_API_URL, json=payload, headers={**headers, "Content-Type": "application/json"})
+        
+        if resp.status_code == 200:
+            print(f"✅ {media_type} sent successfully")
+            return True
+        else:
+            print(f"❌ Media Send Failed: {resp.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Media Error: {e}")
+        return False
+
+def send_to_whatsapp(text=""):
+    if not text:
+        return False
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "group",
         "to": WHATSAPP_GROUP_ID,
         "type": "text",
-        "text": {"body": message_text}
+        "text": {"body": text}
     }
-    
     try:
-        response = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=15)
-        if response.status_code == 200:
-            print("✅ Sent successfully")
-            return True
-        else:
-            error = response.json().get('error', {})
-            print(f"❌ Error {response.status_code}: {error.get('message')}")
-            if "24-hour" in str(error.get('message', '')).lower() or error.get('code') == 131047:
-                print("🚨 WINDOW CLOSED - Members को text reply करने को कहो")
-            return False
-    except Exception as e:
-        print(f"❌ Exception: {e}")
+        r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers)
+        return r.status_code == 200
+    except:
         return False
 
 def send_window_reminder():
     reminder = """🔔 Group Window Active रखने के लिए:
-    
-👉 Admin के किसी भी पोस्ट पर सिर्फ Emoji मत दो।
-👉 कम से कम 1-2 शब्द लिखकर Reply कर दो जैसे:
-"OK", "👍 Received", "Thanks", "Done" आदि
-
-इससे 24 घंटे का window reset हो जाएगा और auto messages free रहेंगे।"""
-    
-    print("📢 Sending window reminder...")
+👉 Admin के पोस्ट पर सिर्फ Emoji मत दो
+👉 कम से कम "OK", "Received", "Thanks" जैसा text reply जरूर कर दो"""
     send_to_whatsapp(reminder)
     save_last_reminder()
 
 def main():
     offset = load_offset()
-    print(f"🔄 [{datetime.now()}] Checking Telegram messages...")
+    print(f"🔄 [{datetime.now()}] Checking new messages from Telegram...")
     
-    # Reminder logic (हर ~20 घंटे में)
-    last_reminder = load_last_reminder()
-    if datetime.now() - last_reminder > timedelta(hours=20):
+    # Reminder
+    if datetime.now() - load_last_reminder() > timedelta(hours=20):
         send_window_reminder()
     
-    # Telegram updates check
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    params = {"offset": offset, "limit": 30, "timeout": 10}
+    params = {"offset": offset, "limit": 15, "timeout": 10}
     
     try:
-        resp = requests.get(url, params=params, timeout=20)
+        resp = requests.get(url, params=params)
         data = resp.json()
         
-        if data.get("ok"):
-            updates = data.get("result", [])
-            for update in updates:
-                if update.get("message") and update["message"].get("text"):
-                    msg = update["message"]
-                    text = msg["text"]
-                    user = msg.get("from", {}).get("first_name", "Unknown")
-                    forwarded = f"📨 Telegram ({user}):\n{text}"
-                    send_to_whatsapp(forwarded)
-                    offset = update["update_id"] + 1
-            save_offset(offset)
+        if not data.get("ok"):
+            return
+            
+        for update in data.get("result", []):
+            msg = update.get("message")
+            if not msg:
+                continue
+                
+            user = msg.get("from", {}).get("first_name", "Unknown")
+            caption = msg.get("caption", "")
+            forwarded_caption = f"📨 Telegram ({user}):\n{caption}" if caption else f"📨 From Telegram ({user})"
+            
+            # Text Message
+            if msg.get("text"):
+                text = f"📨 Telegram ({user}):\n{msg['text']}"
+                send_to_whatsapp(text)
+                
+            # Photo
+            elif msg.get("photo"):
+                photo = msg["photo"][-1]  # highest quality
+                file_bytes = download_telegram_file(photo["file_id"])
+                if file_bytes:
+                    send_media_to_whatsapp(file_bytes, "image/jpeg", forwarded_caption)
+                    
+            # Video
+            elif msg.get("video"):
+                video = msg["video"]
+                file_bytes = download_telegram_file(video["file_id"])
+                if file_bytes:
+                    send_media_to_whatsapp(file_bytes, "video/mp4", forwarded_caption)
+                    
+            # Document (PDF, etc.)
+            elif msg.get("document"):
+                doc = msg["document"]
+                file_bytes = download_telegram_file(doc["file_id"])
+                if file_bytes:
+                    mime_type = doc.get("mime_type", "application/octet-stream")
+                    send_media_to_whatsapp(file_bytes, mime_type, forwarded_caption)
+            
+            offset = update["update_id"] + 1
+            
+        save_offset(offset)
+        
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Main Error: {e}")
 
 if __name__ == "__main__":
     main()
