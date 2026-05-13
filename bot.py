@@ -7,12 +7,22 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 
-# === MULTI TARGET SUPPORT ===
-TARGETS = [t.strip() for t in os.getenv("WHATSAPP_TARGETS", "").split(",") if t.strip()]
+# === SMART TARGET HANDLING ===
+targets_str = os.getenv("WHATSAPP_TARGETS", "") or os.getenv("WHATSAPP_GROUP_ID", "")
+TARGETS = [t.strip() for t in targets_str.split(",") if t.strip()]
+
+# === USERNAME REPLACE ===
+REPLACEMENT_USERNAME = "@KapilRJ06"
 # ============================
 
-LAST_OFFSET = 826689165
+LAST_OFFSET = 0
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+
+def clean_caption(caption):
+    if not caption:
+        return ""
+    # @username ya @KapilRJ06 wagairah ko replace karo
+    return re.sub(r'@[a-zA-Z0-9_]+', REPLACEMENT_USERNAME, caption)
 
 def update_offset_in_file(new_offset):
     try:
@@ -50,18 +60,19 @@ def send_to_target(target, payload):
         if r.status_code == 200:
             print(f"✅ SUCCESS → {target}")
         else:
-            print(f"❌ FAILED → {target} | Status: {r.status_code} | Error: {r.text[:150]}")
+            print(f"❌ FAILED → {target} | {r.status_code} | {r.text[:120]}")
     except Exception as e:
-        print(f"❌ EXCEPTION → {target} | {str(e)[:100]}")
+        print(f"❌ EXCEPTION → {target} | {str(e)[:80]}")
 
 def send_text(text):
-    print(f"\n📨 Sending TEXT to {len(TARGETS)} targets...")
+    print(f"\n📨 TEXT → {len(TARGETS)} targets")
     for target in TARGETS:
         payload = {"messaging_product": "whatsapp", "type": "text", "text": {"body": text[:2000]}}
         send_to_target(target, payload)
 
 def send_media(file_bytes, media_type, caption=""):
-    print(f"\n📎 Sending MEDIA to {len(TARGETS)} targets...")
+    print(f"\n📎 MEDIA → {len(TARGETS)} targets")
+    clean_cap = clean_caption(caption)
     for target in TARGETS:
         if not target: continue
         try:
@@ -75,20 +86,22 @@ def send_media(file_bytes, media_type, caption=""):
             
             payload = {"messaging_product": "whatsapp"}
             if media_type.startswith('image'):
-                payload.update({"type": "image", "image": {"id": media_id, "caption": caption[:1024] if caption else ""}})
+                payload.update({"type": "image", "image": {"id": media_id, "caption": clean_cap}})
             else:
-                payload.update({"type": "document", "document": {"id": media_id, "caption": caption[:1024] if caption else ""}})
+                payload.update({"type": "document", "document": {"id": media_id, "caption": clean_cap}})
             
             send_to_target(target, payload)
         except Exception as e:
             print(f"❌ Media Error → {target} | {str(e)[:80]}")
 
 def main():
-    print(f"\n{'='*60}")
+    print(f"\n{'='*65}")
     print(f"🚀 Bot Started - {datetime.now()}")
     print(f"📌 Offset: {LAST_OFFSET}")
     print(f"🎯 Total Targets: {len(TARGETS)}")
-    print(f"{'='*60}\n")
+    if TARGETS:
+        print(f"📋 Targets: {TARGETS}")
+    print(f"{'='*65}\n")
     
     current_offset = LAST_OFFSET
     try:
@@ -127,9 +140,9 @@ def main():
         if current_offset > LAST_OFFSET:
             update_offset_in_file(current_offset)
             
-        print(f"\n{'='*60}")
+        print(f"\n{'='*65}")
         print(f"✅ All done! Next offset: {current_offset}")
-        print(f"{'='*60}\n")
+        print(f"{'='*65}\n")
         
     except Exception as e:
         print(f"❌ MAIN ERROR: {e}")
