@@ -11,7 +11,7 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 TARGET_NUMBER = "917737781986"
 
 # Yeh line code khud update karega - haath mat lagana!
-LAST_OFFSET = 826689161
+LAST_OFFSET = 826689164
 # ====================================================
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
