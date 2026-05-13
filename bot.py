@@ -28,9 +28,7 @@ def save_offset(offset):
 def download_file(file_id):
     try:
         r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}", timeout=15)
-        if not r.json().get('ok'):
-            print("❌ Telegram File Download Failed")
-            return None
+        print(f"Telegram File Info: {r.status_code}")
         file_path = r.json()['result']['file_path']
         return requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}", timeout=30).content
     except Exception as e:
@@ -48,35 +46,38 @@ def send_text(text):
     }
     try:
         r = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=10)
-        print(f"📤 Text Status: {r.status_code}")
+        print(f"📤 Text Status: {r.status_code} | Response: {r.text[:300]}")
         if r.status_code == 200:
             print("✅ Text Sent Successfully")
-        else:
-            print(f"Text Error: {r.text[:300]}")
     except Exception as e:
         print(f"Text Exception: {e}")
 
 def send_media(file_bytes, media_type, caption=""):
-    print(f"🔄 Uploading {media_type} to WhatsApp...")
+    print(f"\n🔄 Uploading {media_type} to WhatsApp...")
     try:
         headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
-        files = {'file': ('media', file_bytes, media_type)}
         
-        # Media Upload
-        upload_resp = requests.post(
+        files = {
+            'file': ('media', file_bytes, media_type),
+            'messaging_product': (None, 'whatsapp')
+        }
+        
+        upload = requests.post(
             f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media", 
             headers=headers, 
             files=files, 
             timeout=40
         )
         
-        print(f"📤 Upload Status: {upload_resp.status_code}")
-        if upload_resp.status_code != 200:
-            print(f"❌ Upload Failed: {upload_resp.text[:500]}")
+        print(f"📤 Upload Raw Status: {upload.status_code}")
+        print(f"Upload Raw Response: {upload.text[:500]}")
+        
+        if upload.status_code != 200:
+            print("❌ Media Upload Failed")
             return False
 
-        media_id = upload_resp.json().get('id')
-        print(f"✅ Media Uploaded, ID: {media_id}")
+        media_id = upload.json().get('id')
+        print(f"✅ Media ID Received: {media_id}")
 
         # Send Media
         payload = {
@@ -88,27 +89,20 @@ def send_media(file_bytes, media_type, caption=""):
         if media_type.startswith('image'):
             payload["type"] = "image"
             payload["image"] = {"id": media_id}
-            if caption:
-                payload["image"]["caption"] = caption
-        elif media_type.startswith('video'):
-            payload["type"] = "video"
-            payload["video"] = {"id": media_id}
-            if caption:
-                payload["video"]["caption"] = caption
+            if caption: payload["image"]["caption"] = caption
         else:
             payload["type"] = "document"
             payload["document"] = {"id": media_id}
-            if caption:
-                payload["document"]["caption"] = caption[:200]
+            if caption: payload["document"]["caption"] = caption[:200]
 
-        send_resp = requests.post(WHATSAPP_API_URL, json=payload, 
-                                headers={**headers, "Content-Type": "application/json"}, timeout=15)
+        resp = requests.post(WHATSAPP_API_URL, json=payload, 
+                           headers={**headers, "Content-Type": "application/json"}, timeout=15)
         
-        print(f"📤 Final Send Status: {send_resp.status_code}")
-        if send_resp.status_code == 200:
+        print(f"📤 Final Send Status: {resp.status_code}")
+        print(f"Final Response: {resp.text[:400]}")
+        
+        if resp.status_code == 200:
             print("✅ Media Sent Successfully to WhatsApp!")
-        else:
-            print(f"❌ Final Send Failed: {send_resp.text[:400]}")
             
     except Exception as e:
         print(f"❌ Media Exception: {e}")
@@ -136,7 +130,7 @@ def main():
             update_id = update["update_id"]
             user = message.get("from", {}).get("first_name", "Channel")
 
-            print(f"\n📨 Update {update_id} | From: {user}")
+            print(f"\n=== Update {update_id} | From: {user} ===")
 
             if message.get("text"):
                 forwarded = f"📨 Telegram ({user}):\n{message['text']}"
@@ -155,7 +149,7 @@ def main():
                 file_bytes = download_file(doc["file_id"])
                 if file_bytes:
                     mime = doc.get("mime_type", "application/pdf")
-                    send_media(file_bytes, mime, f"From: {user} | {doc.get('file_name','')}")
+                    send_media(file_bytes, mime, f"From: {user}")
 
             offset = update_id + 1
 
