@@ -14,13 +14,14 @@ TARGET_NUMBER = "917737781986"
 LAST_OFFSET = 0
 # ====================================================
 
+WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+
 def update_offset_in_file(new_offset):
     """Code khud hi LAST_OFFSET update karega"""
     try:
         with open(__file__, 'r') as f:
             content = f.read()
         
-        # LAST_OFFSET = number ko replace karo
         new_content = re.sub(
             r'LAST_OFFSET = \d+',
             f'LAST_OFFSET = {new_offset}',
@@ -150,3 +151,20 @@ def main():
                 print(f"📄 Document: {doc.get('file_name')}")
                 file_bytes = download_file(doc["file_id"])
                 if file_bytes:
+                    mime = doc.get("mime_type", "application/octet-stream")
+                    file_name = doc.get('file_name', 'document.pdf')
+                    caption = original_caption if original_caption else f"📨 From Telegram ({user})\n📎 {file_name}"
+                    send_media(file_bytes, mime, caption)
+            
+            current_offset = update_id + 1
+            
+        if current_offset > LAST_OFFSET:
+            update_offset_in_file(current_offset)
+            
+        print(f"\n✅ All done! Next run will start from offset {current_offset}")
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+if __name__ == "__main__":
+    main()
