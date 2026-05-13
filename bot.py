@@ -10,12 +10,7 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 # === TARGETS (Personal + Business + 5 Main Groups) ===
 TARGETS = [
     "917737781986",                    # Personal Number
-    "918104894648",                    # Business Number (Admin)
-    "120363378924248976@g.us",         # RAJASTHAN COMPETITION GK GROUP
-    "120363288666306542@g.us",         # राजस्थान सामान्य ज्ञान ग्रुप 23-24
-    "120363270726830789@g.us",         # राजस्थान सामान्य ज्ञान ग्रुप 2022-23 (1)
-    "120363290254749076@g.us",         # राजस्थान सामान्य ज्ञान ग्रुप 2022-23 (2)
-    "120363300363000430@g.us"          # राजस्थान सामान्य ज्ञान ग्रुप 22-23
+   
 ]
 
 REPLACEMENT_USERNAME = "@KapilRJ06"
