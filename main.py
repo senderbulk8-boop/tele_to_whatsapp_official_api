@@ -1,73 +1,112 @@
-from telethon import TelegramClient, events
-import requests
 import os
-import asyncio
+import requests
+import json
+from datetime import datetime, timedelta
 
-# Telegram API
-api_id = int(os.getenv("TG_API_ID"))
-api_hash = os.getenv("TG_API_HASH")
+# ------------------- Secrets -------------------
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
+PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
+WHATSAPP_GROUP_ID = os.getenv('WHATSAPP_GROUP_ID')
 
-# WhatsApp API
-meta_token = os.getenv("META_TOKEN")
-phone_id = os.getenv("PHONE_ID")
+WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+OFFSET_FILE = "last_offset.json"
+LAST_REMINDER_FILE = "last_reminder.json"
 
-# Telegram Client
-client = TelegramClient("session", api_id, api_hash)
+def load_offset():
+    if os.path.exists(OFFSET_FILE):
+        try:
+            with open(OFFSET_FILE, 'r') as f:
+                return json.load(f).get("offset", 0)
+        except:
+            return 0
+    return 0
 
-print("Telegram Connected")
+def save_offset(offset):
+    with open(OFFSET_FILE, 'w') as f:
+        json.dump({"offset": offset}, f)
 
-# WhatsApp Send Function
-def send_whatsapp_message(number, message):
+def load_last_reminder():
+    if os.path.exists(LAST_REMINDER_FILE):
+        try:
+            with open(LAST_REMINDER_FILE, 'r') as f:
+                return datetime.fromisoformat(json.load(f).get("time"))
+        except:
+            return datetime.now() - timedelta(hours=30)
+    return datetime.now() - timedelta(hours=30)
 
-    url = f"https://graph.facebook.com/v22.0/{phone_id}/messages"
+def save_last_reminder():
+    with open(LAST_REMINDER_FILE, 'w') as f:
+        json.dump({"time": datetime.now().isoformat()}, f)
 
-    headers = {
-        "Authorization": f"Bearer {meta_token}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
+def send_to_whatsapp(message_text: str):
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    payload = {
         "messaging_product": "whatsapp",
-        "to": number,
+        "recipient_type": "group",
+        "to": WHATSAPP_GROUP_ID,
         "type": "text",
-        "text": {
-            "body": message
-        }
+        "text": {"body": message_text}
     }
+    
+    try:
+        response = requests.post(WHATSAPP_API_URL, json=payload, headers=headers, timeout=15)
+        if response.status_code == 200:
+            print("✅ Sent successfully")
+            return True
+        else:
+            error = response.json().get('error', {})
+            print(f"❌ Error {response.status_code}: {error.get('message')}")
+            if "24-hour" in str(error.get('message', '')).lower() or error.get('code') == 131047:
+                print("🚨 WINDOW CLOSED - Members को text reply करने को कहो")
+            return False
+    except Exception as e:
+        print(f"❌ Exception: {e}")
+        return False
 
-    response = requests.post(url, headers=headers, json=data)
+def send_window_reminder():
+    reminder = """🔔 Group Window Active रखने के लिए:
+    
+👉 Admin के किसी भी पोस्ट पर सिर्फ Emoji मत दो।
+👉 कम से कम 1-2 शब्द लिखकर Reply कर दो जैसे:
+"OK", "👍 Received", "Thanks", "Done" आदि
 
-    print(response.text)
+इससे 24 घंटे का window reset हो जाएगा और auto messages free रहेंगे।"""
+    
+    print("📢 Sending window reminder...")
+    send_to_whatsapp(reminder)
+    save_last_reminder()
 
-    if response.status_code == 200:
-        print("Message Sent Successfully")
-    else:
-        print("Failed To Send Message")
+def main():
+    offset = load_offset()
+    print(f"🔄 [{datetime.now()}] Checking Telegram messages...")
+    
+    # Reminder logic (हर ~20 घंटे में)
+    last_reminder = load_last_reminder()
+    if datetime.now() - last_reminder > timedelta(hours=20):
+        send_window_reminder()
+    
+    # Telegram updates check
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    params = {"offset": offset, "limit": 30, "timeout": 10}
+    
+    try:
+        resp = requests.get(url, params=params, timeout=20)
+        data = resp.json()
+        
+        if data.get("ok"):
+            updates = data.get("result", [])
+            for update in updates:
+                if update.get("message") and update["message"].get("text"):
+                    msg = update["message"]
+                    text = msg["text"]
+                    user = msg.get("from", {}).get("first_name", "Unknown")
+                    forwarded = f"📨 Telegram ({user}):\n{text}"
+                    send_to_whatsapp(forwarded)
+                    offset = update["update_id"] + 1
+            save_offset(offset)
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
-
-# Telegram Message Listener
-@client.on(events.NewMessage)
-async def handler(event):
-
-    msg = event.raw_text
-
-    print("New Telegram Message:")
-    print(msg)
-
-    # Yahan apna WhatsApp number likho country code ke sath
-    send_whatsapp_message(
-        "918104894648",
-        msg
-    )
-
-
-async def main():
-
-    await client.start()
-
-    print("Bot Running...")
-
-    await client.run_until_disconnected()
-
-
-asyncio.run(main())
+if __name__ == "__main__":
+    main()
