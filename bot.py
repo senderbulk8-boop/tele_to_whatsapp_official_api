@@ -8,9 +8,17 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 
-TARGET_NUMBER = "120363399289102138@g.us"     # ← Group ID
+# ←←← SAB TARGETS YAHAN HAIN (Personal + Groups)
+TARGETS = [
+    "917737781986",                    # Personal Number
+    "120363378924248976@g.us",
+    "120363288666306542@g.us",
+    "120363270726830789@g.us",
+    "120363290254749076@g.us",
+    "120363300363000430@g.us"
+]
 
-LAST_OFFSET = 826689169   # Yeh line code khud update karega
+LAST_OFFSET = 826689169   # Code khud update karega
 # ====================================================
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
@@ -23,8 +31,7 @@ def update_offset_in_file(new_offset):
         with open(__file__, 'w', encoding='utf-8') as f:
             f.write(new_content)
         print(f"✅ Offset auto-updated to {new_offset}")
-    except Exception as e:
-        print(f"⚠️ Offset update failed: {e}")
+    except: pass
 
 def download_file(file_id):
     try:
@@ -34,81 +41,77 @@ def download_file(file_id):
     except:
         return None
 
-def send_text(text):
+def send_to_target(target, payload):
     try:
+        r = requests.post(WHATSAPP_API_URL, json=payload, headers={
+            "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+            "Content-Type": "application/json"
+        }, timeout=12)
+        status = "✅ Sent" if r.status_code == 200 else f"❌ Failed {r.status_code}"
+        print(f"   → {target[:12]}... {status}")
+    except Exception as e:
+        print(f"   → {target[:12]}... Error: {e}")
+
+def send_text(text):
+    print(f"📨 Sending Text to {len(TARGETS)} targets...")
+    for target in TARGETS:
         payload = {
             "messaging_product": "whatsapp",
-            "recipient_type": "group",
-            "to": TARGET_NUMBER,
+            "recipient_type": "group" if "@g.us" in target else "individual",
+            "to": target,
             "type": "text",
             "text": {"body": text[:2000]}
         }
-        requests.post(WHATSAPP_API_URL, json=payload,
-                      headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"},
-                      timeout=10)
-        print("✅ Text Sent to Group")
-    except Exception as e:
-        print(f"Text Error: {e}")
+        send_to_target(target, payload)
 
 def send_media(file_bytes, media_type, caption=""):
+    print(f"📸 Sending Media to {len(TARGETS)} targets...")
     try:
         headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
-        files = {
-            'file': ('media', file_bytes, media_type),
-            'messaging_product': (None, 'whatsapp')
-        }
-       
+        files = {'file': ('media', file_bytes, media_type), 'messaging_product': (None, 'whatsapp')}
+        
         upload = requests.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media",
                              headers=headers, files=files, timeout=40)
-       
+        
         if upload.status_code != 200:
-            print(f"❌ Media Upload Failed: {upload.status_code} - {upload.text}")
+            print(f"❌ Media Upload Failed: {upload.text[:300]}")
             return
+        
         media_id = upload.json().get('id')
         
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "group",
-            "to": TARGET_NUMBER,
-        }
-        
-        if media_type.startswith('image'):
-            payload["type"] = "image"
-            payload["image"] = {"id": media_id}
-            if caption:
-                payload["image"]["caption"] = caption[:1024]
-        else:  # document / pdf
-            payload["type"] = "document"
-            payload["document"] = {
-                "id": media_id,
-                "filename": "document.pdf"   # ← Yeh add kiya hai
+        for target in TARGETS:
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "group" if "@g.us" in target else "individual",
+                "to": target,
             }
-            if caption:
-                payload["document"]["caption"] = caption[:1024]
-        
-        resp = requests.post(WHATSAPP_API_URL, json=payload,
-                           headers={**headers, "Content-Type": "application/json"}, timeout=15)
-       
-        if resp.status_code == 200:
-            print("✅ Media Sent with Original Caption to Group")
-        else:
-            print(f"❌ Send Failed: {resp.status_code}")
-            print(f"🔍 Error Details: {resp.text}")   # ← Yeh line important hai (exact error dikhega)
-           
+            
+            if media_type.startswith('image'):
+                payload["type"] = "image"
+                payload["image"] = {"id": media_id}
+                if caption:
+                    payload["image"]["caption"] = caption[:1024]
+            else:
+                payload["type"] = "document"
+                payload["document"] = {"id": media_id}
+                if caption:
+                    payload["document"]["caption"] = caption[:1024]
+            
+            send_to_target(target, payload)
+            
     except Exception as e:
         print(f"❌ Media Error: {e}")
 
 def main():
     print(f"\n🚀 Bot Started - {datetime.now()}")
-    print(f"📌 Starting from Offset: {LAST_OFFSET} | Target: Group")
+    print(f"📌 Targets: {len(TARGETS)} (1 Personal + 5 Groups)")
    
     current_offset = LAST_OFFSET
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    params = {"offset": current_offset, "limit": 20, "timeout": 10}
-    
     try:
-        resp = requests.get(url, params=params, timeout=15)
-        updates = resp.json().get("result", [])
+        updates = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={current_offset}&limit=20&timeout=10",
+            timeout=15
+        ).json().get("result", [])
         
         if not updates:
             print("ℹ️ No new messages")
@@ -116,7 +119,6 @@ def main():
             
         for update in updates:
             update_id = update["update_id"]
-            
             if update_id < current_offset:
                 continue
                 
@@ -146,8 +148,7 @@ def main():
                 file_bytes = download_file(doc["file_id"])
                 if file_bytes:
                     mime = doc.get("mime_type", "application/octet-stream")
-                    file_name = doc.get('file_name', 'document.pdf')
-                    caption = original_caption if original_caption else f"📨 From Telegram ({user})\n📎 {file_name}"
+                    caption = original_caption if original_caption else f"📨 From Telegram ({user})\n📎 {doc.get('file_name','Document')}"
                     send_media(file_bytes, mime, caption)
             
             current_offset = update_id + 1
@@ -155,7 +156,7 @@ def main():
         if current_offset > LAST_OFFSET:
             update_offset_in_file(current_offset)
             
-        print(f"✅ All done! Next run will start from offset {current_offset}")
+        print(f"✅ All messages forwarded to {len(TARGETS)} targets!")
         
     except Exception as e:
         print(f"❌ Error: {e}")
