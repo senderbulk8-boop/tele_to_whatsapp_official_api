@@ -11,7 +11,7 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 # WhatsApp Group ID (yeh change mat karna)
 TARGET_NUMBER = "120363399289102138@g.us"     # ← Group ID
 
-LAST_OFFSET = 0   # Yeh line code khud update karega
+LAST_OFFSET = 826689168   # Yeh line code khud update karega
 # ====================================================
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
