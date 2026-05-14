@@ -8,10 +8,9 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 
-# WhatsApp Group ID (yeh change mat karna)
 TARGET_NUMBER = "120363399289102138@g.us"     # ← Group ID
 
-LAST_OFFSET = 826689168   # Yeh line code khud update karega
+LAST_OFFSET = 0   # Yeh line code khud update karega
 # ====================================================
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
@@ -39,7 +38,7 @@ def send_text(text):
     try:
         payload = {
             "messaging_product": "whatsapp",
-            "recipient_type": "group",          # Group ke liye
+            "recipient_type": "group",
             "to": TARGET_NUMBER,
             "type": "text",
             "text": {"body": text[:2000]}
@@ -63,13 +62,13 @@ def send_media(file_bytes, media_type, caption=""):
                              headers=headers, files=files, timeout=40)
        
         if upload.status_code != 200:
-            print(f"❌ Upload Failed: {upload.text[:200]}")
+            print(f"❌ Media Upload Failed: {upload.status_code} - {upload.text}")
             return
         media_id = upload.json().get('id')
         
         payload = {
             "messaging_product": "whatsapp",
-            "recipient_type": "group",          # Group ke liye
+            "recipient_type": "group",
             "to": TARGET_NUMBER,
         }
         
@@ -80,7 +79,10 @@ def send_media(file_bytes, media_type, caption=""):
                 payload["image"]["caption"] = caption[:1024]
         else:  # document / pdf
             payload["type"] = "document"
-            payload["document"] = {"id": media_id}
+            payload["document"] = {
+                "id": media_id,
+                "filename": "document.pdf"   # ← Yeh add kiya hai
+            }
             if caption:
                 payload["document"]["caption"] = caption[:1024]
         
@@ -91,6 +93,7 @@ def send_media(file_bytes, media_type, caption=""):
             print("✅ Media Sent with Original Caption to Group")
         else:
             print(f"❌ Send Failed: {resp.status_code}")
+            print(f"🔍 Error Details: {resp.text}")   # ← Yeh line important hai (exact error dikhega)
            
     except Exception as e:
         print(f"❌ Media Error: {e}")
