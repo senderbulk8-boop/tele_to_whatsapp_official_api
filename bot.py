@@ -18,7 +18,7 @@ TARGETS = [
     "120363300363000430@g.us"
 ]
 
-LAST_OFFSET = 826689189   # Code khud update karega
+LAST_OFFSET = 826689190   # Code khud update karega
 # ====================================================
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
