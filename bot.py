@@ -22,7 +22,7 @@ TARGETS = [
 LAST_OFFSET = 826689196   # Code khud update karega
 # ====================================================
 
-WHATSAPP_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+WHATSAPP_API_URL = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/messages"
 
 def update_offset_in_file(new_offset):
     try:
@@ -71,7 +71,7 @@ def send_media(file_bytes, media_type, caption=""):
         headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
         files = {'file': ('media', file_bytes, media_type), 'messaging_product': (None, 'whatsapp')}
         
-        upload = requests.post(f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media",
+        upload = requests.post(f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/media",
                              headers=headers, files=files, timeout=40)
         
         if upload.status_code != 200:
