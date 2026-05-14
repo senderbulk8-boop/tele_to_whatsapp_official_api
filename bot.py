@@ -11,7 +11,6 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 # ←←← SAB TARGETS YAHAN HAIN (Personal + Groups)
 TARGETS = [
     "917737781986",                    # Personal Number
-     "919545696001",                    # rahul Number
     "120363378924248976@g.us",
     "120363288666306542@g.us",
     "120363270726830789@g.us",
