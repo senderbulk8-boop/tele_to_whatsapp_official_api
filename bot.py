@@ -11,12 +11,6 @@ PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
 # ←←← SAB TARGETS YAHAN HAIN (Personal + Groups)
 TARGETS = [
     "917737781986", # Personal Number
-    "120363426436730822@g.us",
-    "120363378924248976@g.us",
-    "120363288666306542@g.us",
-    "120363270726830789@g.us",
-    "120363290254749076@g.us",
-    "120363300363000430@g.us"
 ]
 
 LAST_OFFSET = 826689243  # Code khud update karega
