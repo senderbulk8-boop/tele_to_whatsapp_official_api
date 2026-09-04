@@ -13,7 +13,7 @@ TARGETS = [
     "917737781986", # Personal Number
 ]
 
-LAST_OFFSET = 826690435  # Code khud update karega
+LAST_OFFSET = 826690436  # Code khud update karega
 # ====================================================
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/messages"
