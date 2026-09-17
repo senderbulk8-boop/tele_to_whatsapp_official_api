@@ -1,178 +1,370 @@
 import os
+import sys
+import json
 import requests
 import re
 from datetime import datetime
 
 # ====================== CONFIG ======================
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
-PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 
-# ←←← SAB TARGETS YAHAN HAIN (Personal + Groups)
-TARGETS = [
-    "917737781986", # Personal Number
-]
+# Sender: 8104894648 (WHATSAPP_PHONE_NUMBER_ID secret)
+# Receiver: 7737781986
+RECEIVER = "917737781986"
 
-LAST_OFFSET = 826690529  # Code khud update karega
+TEMPLATE_NAME = (os.getenv("WHATSAPP_TEMPLATE_NAME") or "").strip()
+TEMPLATE_LANG = os.getenv("WHATSAPP_TEMPLATE_LANG") or "en"
+
+LAST_OFFSET = 826690528  # Code khud update karega
 # ====================================================
 
-WHATSAPP_API_URL = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/messages"
-
-# ====================== NEW: Username Replacement ======================
+GRAPH = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}"
+WHATSAPP_API_URL = f"{GRAPH}/messages"
 REPLACEMENT_USERNAME = "@KapilRJ06"
+
+WA_HEADERS = {
+    "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+    "Content-Type": "application/json",
+}
+
 
 def replace_usernames(text):
     if not text:
         return text
     return re.sub(r"@\w+", REPLACEMENT_USERNAME, text)
-# =====================================================================
+
 
 def update_offset_in_file(new_offset):
     try:
-        with open(__file__, 'r', encoding='utf-8') as f:
+        with open(__file__, "r", encoding="utf-8") as f:
             content = f.read()
-        new_content = re.sub(r'LAST_OFFSET = \d+', f'LAST_OFFSET = {new_offset}', content)
-        with open(__file__, 'w', encoding='utf-8') as f:
+        new_content = re.sub(r"LAST_OFFSET = \d+", f"LAST_OFFSET = {new_offset}", content)
+        with open(__file__, "w", encoding="utf-8") as f:
             f.write(new_content)
         print(f"✅ Offset auto-updated to {new_offset}")
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Offset file update failed: {e}")
+
+
+def explain_wa_error(code, body):
+    print(f"❌ WhatsApp error {code}: {body[:800]}")
+    if code == 131047:
+        print(
+            "   24-hour window band hai.\n"
+            "   7737781986 wale phone se WhatsApp pe 8104894648 ko Hi bhejo.\n"
+            "   Uske baad 24 ghante messages jayenge."
+        )
+    elif code == 131030:
+        print(
+            "   Number allow-list me nahi.\n"
+            "   Meta Dashboard → WhatsApp → API Setup → To me 917737781986 add + OTP verify."
+        )
+    elif code == 131026:
+        print("   Number WhatsApp pe nahi / undeliverable. 917737781986 check karo.")
+    elif code in (190, 0, 10):
+        print("   Token/permission problem. WHATSAPP_TOKEN naya generate karo.")
+    elif code == 131021:
+        print("   Sender aur receiver same number hai.")
+
+
+def post_message(payload):
+    r = requests.post(WHATSAPP_API_URL, json=payload, headers=WA_HEADERS, timeout=20)
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"raw": r.text}
+    print(f"   WA HTTP {r.status_code}: {json.dumps(data)[:800]}")
+    return r.status_code, data
+
+
+def send_template(to, text):
+    if not TEMPLATE_NAME:
+        return False
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": TEMPLATE_NAME,
+            "language": {"code": TEMPLATE_LANG},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": (text or "Telegram update")[:1024]}],
+                }
+            ],
+        },
+    }
+    print(f"🔁 24h window — template '{TEMPLATE_NAME}' se bhej rahe hain...")
+    status, data = post_message(payload)
+    if status == 200:
+        return True
+    err = data.get("error") or {}
+    explain_wa_error(err.get("code"), json.dumps(data))
+    return False
+
+
+def send_text(text):
+    body = (text or "")[:4096]
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": RECEIVER,
+        "type": "text",
+        "text": {"preview_url": False, "body": body},
+    }
+    print(f"📨 Text → {RECEIVER}")
+    status, data = post_message(payload)
+    if status == 200:
+        return True
+    err = data.get("error") or {}
+    code = err.get("code")
+    if code == 131047:
+        return send_template(RECEIVER, body)
+    explain_wa_error(code, json.dumps(data))
+    return False
+
+
+def upload_media(file_bytes, mime, filename):
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+    files = {
+        "file": (filename, file_bytes, mime),
+        "messaging_product": (None, "whatsapp"),
+        "type": (None, mime),
+    }
+    upload = requests.post(f"{GRAPH}/media", headers=headers, files=files, timeout=60)
+    print(f"   Media upload HTTP {upload.status_code}: {upload.text[:400]}")
+    if upload.status_code != 200:
+        return None
+    return upload.json().get("id")
+
+
+def send_media(file_bytes, mime, caption="", filename="file.bin"):
+    print(f"📸 Media ({mime}) → {RECEIVER}")
+    media_id = upload_media(file_bytes, mime, filename)
+    if not media_id:
+        if caption:
+            return send_text(caption)
+        return False
+
+    if mime.startswith("image"):
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": RECEIVER,
+            "type": "image",
+            "image": {"id": media_id},
+        }
+        if caption:
+            payload["image"]["caption"] = caption[:1024]
+    elif mime.startswith("video"):
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": RECEIVER,
+            "type": "video",
+            "video": {"id": media_id},
+        }
+        if caption:
+            payload["video"]["caption"] = caption[:1024]
+    elif mime.startswith("audio"):
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": RECEIVER,
+            "type": "audio",
+            "audio": {"id": media_id},
+        }
+    else:
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": RECEIVER,
+            "type": "document",
+            "document": {"id": media_id, "filename": filename},
+        }
+        if caption:
+            payload["document"]["caption"] = caption[:1024]
+
+    status, data = post_message(payload)
+    if status == 200:
+        return True
+    err = data.get("error") or {}
+    code = err.get("code")
+    if code == 131047:
+        return send_template(RECEIVER, caption or "Telegram media")
+    explain_wa_error(code, json.dumps(data))
+    return False
+
 
 def download_file(file_id):
     try:
-        r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}", timeout=15)
-        file_path = r.json()['result']['file_path']
-        return requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}", timeout=30).content
-    except:
+        meta = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}",
+            timeout=15,
+        )
+        info = meta.json()
+        if not info.get("ok"):
+            print(f"❌ Telegram getFile failed: {info}")
+            return None
+        file_path = info["result"]["file_path"]
+        raw = requests.get(
+            f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}",
+            timeout=60,
+        )
+        if raw.status_code != 200:
+            print(f"❌ Telegram file download HTTP {raw.status_code}")
+            return None
+        return raw.content
+    except Exception as e:
+        print(f"❌ Telegram download error: {e}")
         return None
 
-def send_to_target(target, payload):
-    try:
-        r = requests.post(WHATSAPP_API_URL, json=payload, headers={
-            "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-            "Content-Type": "application/json"
-        }, timeout=12)
-        status = "✅ Sent" if r.status_code == 200 else f"❌ Failed {r.status_code}"
-        print(f" → {target[:12]}... {status}")
-    except Exception as e:
-        print(f" → {target[:12]}... Error: {e}")
 
-def send_text(text):
-    print(f"📨 Sending Text to {len(TARGETS)} targets...")
-    for target in TARGETS:
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "group" if "@g.us" in target else "individual",
-            "to": target,
-            "type": "text",
-            "text": {"body": text[:2000]}
-        }
-        send_to_target(target, payload)
+def forward_message(message):
+    user = (
+        message.get("from", {}).get("first_name")
+        or message.get("sender_chat", {}).get("title")
+        or "Channel"
+    )
+    original_caption = replace_usernames(message.get("caption") or "")
 
-def send_media(file_bytes, media_type, caption=""):
-    print(f"📸 Sending Media to {len(TARGETS)} targets...")
-    try:
-        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
-        files = {'file': ('media', file_bytes, media_type), 'messaging_product': (None, 'whatsapp')}
-       
-        upload = requests.post(f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/media",
-                             headers=headers, files=files, timeout=40)
-       
-        if upload.status_code != 200:
-            print(f"❌ Media Upload Failed: {upload.text[:300]}")
-            return
-       
-        media_id = upload.json().get('id')
-       
-        for target in TARGETS:
-            payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "group" if "@g.us" in target else "individual",
-                "to": target,
-            }
-           
-            if media_type.startswith('image'):
-                payload["type"] = "image"
-                payload["image"] = {"id": media_id}
-                if caption:
-                    payload["image"]["caption"] = caption[:1024]
-            else:
-                payload["type"] = "document"
-                payload["document"] = {"id": media_id}
-                if caption:
-                    payload["document"]["caption"] = caption[:1024]
-           
-            send_to_target(target, payload)
-           
-    except Exception as e:
-        print(f"❌ Media Error: {e}")
+    if message.get("text"):
+        updated_text = replace_usernames(message["text"])
+        return send_text(f"📨 Telegram ({user}):\n{updated_text}")
+
+    if message.get("photo"):
+        print("🖼️ Image")
+        photo = message["photo"][-1]
+        file_bytes = download_file(photo["file_id"])
+        if not file_bytes:
+            return False
+        caption = original_caption or f"📨 From Telegram ({user})"
+        return send_media(file_bytes, "image/jpeg", caption, "photo.jpg")
+
+    if message.get("video") or message.get("animation"):
+        print("🎬 Video")
+        media = message.get("video") or message.get("animation")
+        file_bytes = download_file(media["file_id"])
+        if not file_bytes:
+            return False
+        mime = media.get("mime_type") or "video/mp4"
+        caption = original_caption or f"📨 From Telegram ({user})"
+        return send_media(file_bytes, mime, caption, "video.mp4")
+
+    if message.get("document"):
+        doc = message["document"]
+        print(f"📄 Document: {doc.get('file_name')}")
+        file_bytes = download_file(doc["file_id"])
+        if not file_bytes:
+            return False
+        mime = doc.get("mime_type") or "application/octet-stream"
+        name = doc.get("file_name") or "file.bin"
+        caption = original_caption or f"📨 From Telegram ({user})\n📎 {name}"
+        return send_media(file_bytes, mime, caption, name)
+
+    if message.get("voice") or message.get("audio"):
+        print("🎵 Audio")
+        media = message.get("voice") or message.get("audio")
+        file_bytes = download_file(media["file_id"])
+        if not file_bytes:
+            return False
+        mime = media.get("mime_type") or "audio/ogg"
+        caption = original_caption or f"📨 From Telegram ({user})"
+        ok = send_media(file_bytes, mime, caption, "audio.ogg")
+        if not ok and caption:
+            return send_text(caption)
+        return ok
+
+    if message.get("sticker"):
+        print("🏷️ Sticker")
+        sticker = message["sticker"]
+        file_bytes = download_file(sticker["file_id"])
+        if file_bytes:
+            mime = "image/webp" if not sticker.get("is_animated") else "video/mp4"
+            name = "sticker.webp" if mime == "image/webp" else "sticker.mp4"
+            if send_media(file_bytes, mime, f"📨 Sticker from Telegram ({user})", name):
+                return True
+        return send_text(f"📨 Telegram ({user}): [sticker]")
+
+    kind = ", ".join(
+        k for k in message.keys() if k not in ("from", "chat", "date", "message_id")
+    )
+    return send_text(f"📨 Telegram ({user}): unsupported type ({kind})")
+
 
 def main():
     print(f"\n🚀 Bot Started - {datetime.now()}")
-    print(f"📌 Targets: {len(TARGETS)} (1 Personal + Groups)")
-  
+    print("📌 Sender business: 8104894648 (via PHONE_NUMBER_ID)")
+    print(f"📌 Receiver: {RECEIVER}")
+
+    missing = [
+        n
+        for n, v in (
+            ("TELEGRAM_TOKEN", TELEGRAM_TOKEN),
+            ("WHATSAPP_TOKEN", WHATSAPP_TOKEN),
+            ("WHATSAPP_PHONE_NUMBER_ID", PHONE_NUMBER_ID),
+        )
+        if not v
+    ]
+    if missing:
+        print(f"❌ Missing GitHub secrets: {', '.join(missing)}")
+        return
+
     current_offset = LAST_OFFSET
     try:
-        updates = requests.get(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={current_offset}&limit=20&timeout=10",
-            timeout=15
-        ).json().get("result", [])
-       
+        resp = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
+            params={"offset": current_offset, "limit": 20, "timeout": 10},
+            timeout=20,
+        )
+        payload = resp.json()
+        if not payload.get("ok"):
+            print(f"❌ Telegram getUpdates failed: {payload}")
+            return
+
+        updates = payload.get("result") or []
         if not updates:
             print("ℹ️ No new messages")
             return
-           
+
+        failed = False
         for update in updates:
             update_id = update["update_id"]
             if update_id < current_offset:
                 continue
-               
+
             message = update.get("message") or update.get("channel_post")
             if not message:
                 current_offset = update_id + 1
                 continue
-               
-            user = message.get("from", {}).get("first_name", "Channel")
-            original_caption = message.get("caption") or ""
-           
-            if message.get("text"):
-                original_text = message['text']
-                updated_text = replace_usernames(original_text)          # ← NEW
-                forwarded = f"📨 Telegram ({user}):\n{updated_text}"
-                send_text(forwarded)
-               
-            elif message.get("photo"):
-                print("🖼️ Image Detected")
-                photo = message["photo"][-1]
-                file_bytes = download_file(photo["file_id"])
-                if file_bytes:
-                    if original_caption:
-                        caption = replace_usernames(original_caption)     # ← NEW
-                    else:
-                        caption = f"📨 From Telegram ({user})"
-                    send_media(file_bytes, "image/jpeg", caption)
-                   
-            elif message.get("document"):
-                doc = message["document"]
-                print(f"📄 Document: {doc.get('file_name')}")
-                file_bytes = download_file(doc["file_id"])
-                if file_bytes:
-                    mime = doc.get("mime_type", "application/octet-stream")
-                    if original_caption:
-                        caption = replace_usernames(original_caption)     # ← NEW
-                    else:
-                        caption = f"📨 From Telegram ({user})\n📎 {doc.get('file_name','Document')}"
-                    send_media(file_bytes, mime, caption)
-           
+
+            ok = forward_message(message)
+            if not ok:
+                print(
+                    f"❌ Forward failed for Telegram update_id={update_id} — "
+                    "offset yahin rukega, next run retry karega"
+                )
+                failed = True
+                break
+
             current_offset = update_id + 1
-           
+
         if current_offset > LAST_OFFSET:
             update_offset_in_file(current_offset)
-           
-        print(f"✅ All messages forwarded to {len(TARGETS)} targets!")
-       
+
+        if failed:
+            print("❌ WhatsApp send fail. 7737781986 se 8104894648 ko Hi bhejo, phir workflow dubara chalao.")
+            return
+
+        print(f"✅ Forwarded to {RECEIVER}")
     except Exception as e:
         print(f"❌ Error: {e}")
+        if current_offset > LAST_OFFSET:
+            update_offset_in_file(current_offset)
+
 
 if __name__ == "__main__":
     main()
