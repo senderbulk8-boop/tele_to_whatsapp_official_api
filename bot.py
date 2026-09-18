@@ -17,7 +17,7 @@ RECEIVER = "917737781986"
 TEMPLATE_NAME = (os.getenv("WHATSAPP_TEMPLATE_NAME") or "").strip()
 TEMPLATE_LANG = os.getenv("WHATSAPP_TEMPLATE_LANG") or "en"
 
-LAST_OFFSET = 826690574  # Code khud update karega
+LAST_OFFSET = 826690594  # Code khud update karega
 # ====================================================
 
 GRAPH = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}"
