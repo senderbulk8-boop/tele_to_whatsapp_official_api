@@ -54,8 +54,59 @@ def clean_text(text):
     return protected
 
 
-def has_positron_link(text):
-    return bool(text and PA_LINK_RE.search(text))
+def utf16_slice(text, offset, length):
+    encoded = text.encode("utf-16-le")
+    start = offset * 2
+    end = (offset + length) * 2
+    return encoded[start:end].decode("utf-16-le", errors="ignore")
+
+
+def extract_hidden_urls(message):
+    """Telegram channel links aksar text me nahi, entity/button me hote hain."""
+    urls = []
+    seen = set()
+
+    def add(url):
+        if not url:
+            return
+        url = url.strip()
+        key = url.lower().rstrip("/")
+        if key and key not in seen:
+            seen.add(key)
+            urls.append(url)
+
+    source = message.get("text") or message.get("caption") or ""
+    for key in ("entities", "caption_entities"):
+        for ent in message.get(key) or []:
+            if ent.get("url"):
+                add(ent["url"])
+            if ent.get("type") == "url" and source:
+                add(utf16_slice(source, ent.get("offset", 0), ent.get("length", 0)))
+
+    for row in (message.get("reply_markup") or {}).get("inline_keyboard") or []:
+        for btn in row:
+            add(btn.get("url"))
+
+    return urls
+
+
+def attach_urls(text, message):
+    """Visible text + hidden Telegram links. positronacademy.in hamesha rakho."""
+    body = clean_text(text or "").strip()
+    extra = []
+    lower = body.lower()
+    for url in extract_hidden_urls(message):
+        if url.lower() in lower:
+            continue
+        extra.append(url)
+    if extra:
+        print(f"🔗 Hidden links attached: {extra}")
+        body = (body + "\n\n" + "\n".join(extra)).strip()
+    return body
+
+
+def has_web_link(text):
+    return bool(text and re.search(r"https?://|positronacademy\.in", text, re.I))
 
 
 def update_offset_in_file(new_offset):
@@ -139,7 +190,7 @@ def send_text(text):
         "to": RECEIVER,
         "type": "text",
         "text": {
-            "preview_url": has_positron_link(body),
+            "preview_url": has_web_link(body),
             "body": body,
         },
     }
@@ -252,10 +303,10 @@ def download_file(file_id):
 
 
 def forward_message(message):
-    original_caption = clean_text(message.get("caption") or "").strip()
+    original_caption = attach_urls(message.get("caption") or "", message)
 
     if message.get("text"):
-        return send_text(clean_text(message["text"]))
+        return send_text(attach_urls(message.get("text") or "", message))
 
     if message.get("photo"):
         print("🖼️ Image")
