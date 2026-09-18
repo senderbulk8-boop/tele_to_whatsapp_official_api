@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import requests
 import re
@@ -24,16 +23,39 @@ GRAPH = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}"
 WHATSAPP_API_URL = f"{GRAPH}/messages"
 REPLACEMENT_USERNAME = "@KapilRJ06"
 
+# positronacademy.in links (http/https/www/subdomain) filter se bahar
+PA_LINK_RE = re.compile(
+    r"(https?://(?:www\.)?(?:[A-Za-z0-9-]+\.)*positronacademy\.in(?:[^\s]*)?)"
+    r"|(?:(?<=\s)|^)(?:www\.)?positronacademy\.in(?:/[^\s]*)?",
+    re.I,
+)
+
 WA_HEADERS = {
     "Authorization": f"Bearer {WHATSAPP_TOKEN}",
     "Content-Type": "application/json",
 }
 
 
-def replace_usernames(text):
+def clean_text(text):
+    """@mentions replace, lekin positronacademy.in links bilkul mat chhedo."""
     if not text:
         return text
-    return re.sub(r"@\w+", REPLACEMENT_USERNAME, text)
+
+    saved = []
+
+    def _park(match):
+        saved.append(match.group(0))
+        return f"@@PA{len(saved) - 1}@@"
+
+    protected = PA_LINK_RE.sub(_park, text)
+    protected = re.sub(r"@\w+", REPLACEMENT_USERNAME, protected)
+    for i, url in enumerate(saved):
+        protected = protected.replace(f"@@PA{i}@@", url)
+    return protected
+
+
+def has_positron_link(text):
+    return bool(text and PA_LINK_RE.search(text))
 
 
 def update_offset_in_file(new_offset):
@@ -92,7 +114,7 @@ def send_template(to, text):
             "components": [
                 {
                     "type": "body",
-                    "parameters": [{"type": "text", "text": (text or "Telegram update")[:1024]}],
+                    "parameters": [{"type": "text", "text": (text or "update")[:1024]}],
                 }
             ],
         },
@@ -107,13 +129,19 @@ def send_template(to, text):
 
 
 def send_text(text):
-    body = (text or "")[:4096]
+    body = (text or "").strip()[:4096]
+    if not body:
+        print("ℹ️ Empty text, skip")
+        return True
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": RECEIVER,
         "type": "text",
-        "text": {"preview_url": False, "body": body},
+        "text": {
+            "preview_url": has_positron_link(body),
+            "body": body,
+        },
     }
     print(f"📨 Text → {RECEIVER}")
     status, data = post_message(payload)
@@ -194,7 +222,7 @@ def send_media(file_bytes, mime, caption="", filename="file.bin"):
     err = data.get("error") or {}
     code = err.get("code")
     if code == 131047:
-        return send_template(RECEIVER, caption or "Telegram media")
+        return send_template(RECEIVER, caption or "media")
     explain_wa_error(code, json.dumps(data))
     return False
 
@@ -224,16 +252,10 @@ def download_file(file_id):
 
 
 def forward_message(message):
-    user = (
-        message.get("from", {}).get("first_name")
-        or message.get("sender_chat", {}).get("title")
-        or "Channel"
-    )
-    original_caption = replace_usernames(message.get("caption") or "")
+    original_caption = clean_text(message.get("caption") or "").strip()
 
     if message.get("text"):
-        updated_text = replace_usernames(message["text"])
-        return send_text(f"📨 Telegram ({user}):\n{updated_text}")
+        return send_text(clean_text(message["text"]))
 
     if message.get("photo"):
         print("🖼️ Image")
@@ -241,8 +263,7 @@ def forward_message(message):
         file_bytes = download_file(photo["file_id"])
         if not file_bytes:
             return False
-        caption = original_caption or f"📨 From Telegram ({user})"
-        return send_media(file_bytes, "image/jpeg", caption, "photo.jpg")
+        return send_media(file_bytes, "image/jpeg", original_caption, "photo.jpg")
 
     if message.get("video") or message.get("animation"):
         print("🎬 Video")
@@ -251,8 +272,7 @@ def forward_message(message):
         if not file_bytes:
             return False
         mime = media.get("mime_type") or "video/mp4"
-        caption = original_caption or f"📨 From Telegram ({user})"
-        return send_media(file_bytes, mime, caption, "video.mp4")
+        return send_media(file_bytes, mime, original_caption, "video.mp4")
 
     if message.get("document"):
         doc = message["document"]
@@ -262,8 +282,7 @@ def forward_message(message):
             return False
         mime = doc.get("mime_type") or "application/octet-stream"
         name = doc.get("file_name") or "file.bin"
-        caption = original_caption or f"📨 From Telegram ({user})\n📎 {name}"
-        return send_media(file_bytes, mime, caption, name)
+        return send_media(file_bytes, mime, original_caption, name)
 
     if message.get("voice") or message.get("audio"):
         print("🎵 Audio")
@@ -272,27 +291,22 @@ def forward_message(message):
         if not file_bytes:
             return False
         mime = media.get("mime_type") or "audio/ogg"
-        caption = original_caption or f"📨 From Telegram ({user})"
-        ok = send_media(file_bytes, mime, caption, "audio.ogg")
-        if not ok and caption:
-            return send_text(caption)
+        ok = send_media(file_bytes, mime, original_caption, "audio.ogg")
+        if not ok and original_caption:
+            return send_text(original_caption)
         return ok
 
     if message.get("sticker"):
         print("🏷️ Sticker")
         sticker = message["sticker"]
         file_bytes = download_file(sticker["file_id"])
-        if file_bytes:
-            mime = "image/webp" if not sticker.get("is_animated") else "video/mp4"
-            name = "sticker.webp" if mime == "image/webp" else "sticker.mp4"
-            if send_media(file_bytes, mime, f"📨 Sticker from Telegram ({user})", name):
-                return True
-        return send_text(f"📨 Telegram ({user}): [sticker]")
+        if not file_bytes:
+            return False
+        mime = "image/webp" if not sticker.get("is_animated") else "video/mp4"
+        name = "sticker.webp" if mime == "image/webp" else "sticker.mp4"
+        return send_media(file_bytes, mime, original_caption, name)
 
-    kind = ", ".join(
-        k for k in message.keys() if k not in ("from", "chat", "date", "message_id")
-    )
-    return send_text(f"📨 Telegram ({user}): unsupported type ({kind})")
+    return True
 
 
 def main():
